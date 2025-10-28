@@ -2,7 +2,7 @@
 Fall 2025 CS 7643 DL project
 
 ## Data Preprocessing
-### make_dataset.py
+### data/main.py
 #### Args
 
 | Flag | Description | Default |
@@ -26,24 +26,30 @@ CSV contains one row per uniform timestamp with the exact header order shown:
 
 ```
 time,
+global.altitude, global.latitude, global.longitude,
 imu.angular_velocity.x, imu.angular_velocity.y, imu.angular_velocity.z,
 imu.linear_acceleration.x, imu.linear_acceleration.y, imu.linear_acceleration.z,
+imu.orientation.w, imu.orientation.x, imu.orientation.y, imu.orientation.z,
 odom.orientation.w, odom.orientation.x, odom.orientation.y, odom.orientation.z,
 odom.position.x, odom.position.y, odom.position.z,
 odom.twist.angular.x, odom.twist.angular.y, odom.twist.angular.z,
 odom.twist.linear.x, odom.twist.linear.y, odom.twist.linear.z,
-u, v, r, psi,
-u_filt, v_filt, r_filt,
-du_dt, dv_dt, dr_dt,
-cos_psi, sin_psi
+wp.current_seq,
+psi,                                    # yaw (from quaternion)
+u, v, r,                                # raw body-frame velocities and yaw rate
+u_filt, v_filt, r_filt,                 # filtered versions (Butterworth)
+du_dt, dv_dt, dr_dt,                    # accelerations (central difference)
+cos_psi, sin_psi,                       # trigonometric features
+u_filt_norm, v_filt_norm, r_filt_norm,  # normalized velocity features
+du_dt_norm, dv_dt_norm, dr_dt_norm      # normalized acceleration features
 ```
 
 Notes:
-- `u, v, r` are taken from `odom.twist.linear.x`, `odom.twist.linear.y`, and `odom.twist.angular.z` (with IMU fallback for `r` if needed)
-- `psi` is computed from the quaternion orientation
-- `u_filt, v_filt, r_filt` are zero-phase Butterworth filtered velocities
-- `du_dt, dv_dt, dr_dt` are central-difference accelerations on the resampled grid
-- If thrust signals are available later (e.g., `thrust_port`, `thrust_starboard`), they can be appended and used downstream
+- u, v, r are extracted from odometry twist signals
+- psi (yaw) is computed from odom.orientation.* quaternion
+- Filtered columns are smoothed using a zero-phase Butterworth filter
+- Normalized columns use mean and std values recorded in <output>.norm.json
+- The wp.current_seq field identifies the current waypoint index
 
 
 
