@@ -15,7 +15,9 @@ def parse_args():
     return ap.parse_args()
 
 def run_pipeline(args):
-    df_long = pd.read_csv(args.input)
+    df_long = pd.read_csv(args.input, sep='\t', engine='python', quoting=3)
+    print(df_long.columns)
+    print(df_long[df_long["topic"].isna()])
 
     wide = long_to_wide(df_long)
     wide, fs = resample_sync(wide, args.resample_hz)
