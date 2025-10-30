@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-
+import pandas as pd
 # Import models
 from models.mlp import ResidualMLP
 from models.physics import Fossen3DOF  # physics-based model
@@ -17,14 +17,23 @@ epochs = 100
 batch_size = 64
 
 # Replace with Data Loading
-u = torch.randn(1000, 1)
-v = torch.randn(1000, 1)
-r = torch.randn(1000, 1)
-thrust_L = torch.randn(1000, 1)
-thrust_R = torch.randn(1000, 1)
-measured_accel = torch.randn(1000, 3)
+# u = torch.randn(1000, 1)
+# v = torch.randn(1000, 1)
+# r = torch.randn(1000, 1)
+# thrust_L = torch.randn(1000, 1)
+# thrust_R = torch.randn(1000, 1)
+# measured_accel = torch.randn(1000, 3)
 
-inputs = torch.cat([u, v, r, thrust_L, thrust_R], dim=1)
+
+csv_path = "~/Downloads/processed_new.csv"
+df = pd.read_csv(csv_path,parse_dates=["time"])
+
+inputs_cols = ["u_filt", "v_filt", "r_filt", "cmd_thrust.port", "cmd_thrust.starboard"]
+target_cols = ["du_dt", "dv_dt", "dr_dt"]  # measured accelerations; SHOULD WE USE IMU OR CALCULATED ACCELS?
+
+inputs = torch.tensor(df[inputs_cols].values, dtype=torch.float32)
+measured_accel = torch.tensor(df[target_cols].values, dtype=torch.float32)
+
 dataset = TensorDataset(inputs, measured_accel)
 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
