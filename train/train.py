@@ -4,6 +4,7 @@ import os
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -56,44 +57,45 @@ model = ResidualMLP(in_dim=in_dim, hidden=hidden, out_dim=out_dim)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=lr)
 
+fossen_model = Fossen3DOF()
 
 # --------------------
-print("\n🔍 Running dry run (single batch check)...")
+# print("\n🔍 Running dry run (single batch check)...")
 
-x_batch, measured_accel_batch = next(iter(loader))
-print("x_batch:", x_batch.shape)
-print("measured_accel_batch:", measured_accel_batch.shape)
+# x_batch, measured_accel_batch = next(iter(loader))
+# print("x_batch:", x_batch.shape)
+# print("measured_accel_batch:", measured_accel_batch.shape)
 
-# Unpack
-u, v, r, tL, tR = x_batch.T
+# # Unpack
+# u, v, r, tL, tR = x_batch.T
+# print(tR)
+# # Physics-based prediction
+# model_accel = fossen_model.forward(u, v, r, tL, tR)
+# print("model_accel:", model_accel.shape)
 
-# Physics-based prediction
-model_accel = Fossen3DOF.forward(u, v, r, tL, tR)
-print("model_accel:", model_accel.shape)
+# # Residual target
+# residual_target = measured_accel_batch - model_accel
+# print("residual_target:", residual_target.shape)
 
-# Residual target
-residual_target = measured_accel_batch - model_accel
-print("residual_target:", residual_target.shape)
+# # NN prediction
+# residual_pred = model(x_batch)
+# print("residual_pred:", residual_pred.shape)
 
-# NN prediction
-residual_pred = model(x_batch)
-print("residual_pred:", residual_pred.shape)
+# # Loss
+# loss = criterion(residual_pred, residual_target)
+# print("Initial loss:", loss.item())
 
-# Loss
-loss = criterion(residual_pred, residual_target)
-print("Initial loss:", loss.item())
+# print("✅ Dry run passed — proceeding to training.\n")
 
-print("✅ Dry run passed — proceeding to training.\n")
-
+loss_history= []
 
 # Training Loop
 for epoch in range(epochs):
     total_loss = 0
     for x_batch, measured_accel_batch in loader:
-        u, v, r, tL, tR = x_batch[:,0], x_batch[:,1], x_batch[:,2], x_batch[:,3], x_batch[:,4]
-
+        u, v, r, tL, tR = x_batch.T
         # Step 1: Physics-based prediction
-        model_accel = Fossen3DOF.forward(u, v, r, tL, tR)
+        model_accel = fossen_model.forward(u,v,r,tL,tR)
 
         # Step 2: Compute residual target
         residual_target = measured_accel_batch - model_accel
@@ -110,5 +112,60 @@ for epoch in range(epochs):
         optimizer.step()
 
         total_loss += loss.item()
+    avg_loss = total_loss / len(loader)
+    loss_history.append(avg_loss)
 
     print(f"Epoch [{epoch+1}/{epochs}] Loss: {total_loss/len(loader):.6f}")
+
+# Plot training loss curve
+plt.figure()
+plt.plot(loss_history)
+plt.title("Training Loss (MSE)")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.grid(True)
+
+# Save the trained model
+torch.save(model.state_dict(), "residual_mlp.pth")
+print("✅ Model saved as residual_mlp.pth")
+
+# -------------------- EVALUATION --------------------
+model.eval()
+with torch.no_grad():
+    u, v, r, tL, tR = inputs.T
+    model_accel = fossen_model.forward(u, v, r, tL, tR)
+    residual_pred = model(inputs)
+    hybrid_accel = model_accel + residual_pred
+
+# -------------------- QUANTITATIVE EVALUATION --------------------
+# Compute per-axis MSE and MAE
+mse_hybrid = torch.mean((hybrid_accel - measured_accel)**2, dim=0)
+mae_hybrid = torch.mean(torch.abs(hybrid_accel - measured_accel), dim=0)
+
+mse_model = torch.mean((model_accel - measured_accel)**2, dim=0)
+mae_model = torch.mean(torch.abs(model_accel - measured_accel), dim=0)
+
+acc_labels = ["u_dot (surge)", "v_dot (sway)", "r_dot (yaw rate)"]
+for i in range(3):
+    print(f"{acc_labels[i]}: MSE hybrid={mse_hybrid[i]:.6f}, MAE hybrid={mae_hybrid[i]:.6f} | "
+          f"MSE physics={mse_model[i]:.6f}, MAE physics={mae_model[i]:.6f}")
+
+# -------------------- PLOTTING: Model, Residual, Hybrid, Measured --------------------
+fig, axs = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
+
+acc_labels = ["u_dot (surge)", "v_dot (sway)", "r_dot (yaw rate)"]
+colors = ["blue", "green", "red", "black"]
+linestyles = ["--", ":", "-.", "-"]  # model, residual, hybrid, measured
+
+for i in range(3):
+    axs[i].plot(model_accel[:, i], label=f"Physics {acc_labels[i]}", color=colors[0], linestyle=linestyles[0])
+    axs[i].plot(residual_pred[:, i], label=f"Residual {acc_labels[i]}", color=colors[1], linestyle=linestyles[1])
+    axs[i].plot(hybrid_accel[:, i], label=f"Hybrid {acc_labels[i]}", color=colors[2], linestyle=linestyles[2])
+    axs[i].plot(measured_accel[:, i], label=f"Measured {acc_labels[i]}", color=colors[3], linestyle=linestyles[3])
+    axs[i].legend()
+    axs[i].grid(True)
+    axs[i].set_ylabel("Acceleration [m/s²]")
+
+axs[2].set_xlabel("Sample index")
+plt.suptitle("Measured vs Physics vs Residual vs Hybrid Accelerations")
+plt.show()

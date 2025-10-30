@@ -26,39 +26,42 @@ class Fossen3DOF:
         self.Y_dv = Y_dv
         self.N_dr = N_dr
 
-    def forward(self, nu, tau):
-        u, v, r = nu.T
-        X, Y, N = tau.T
+    def forward(self, u, v, r, tL, tR):
+        # Thrust inputs
+        X = tL + tR
+        Y = torch.zeros_like(X)
+        N = (tR - tL) * (self.L / 2.0)
 
-        # inertia matrix including added mass
-        M = torch.stack([
-            [self.m + self.X_du, torch.zeros_like(u), torch.zeros_like(u)],
-            [torch.zeros_like(u), self.m + self.Y_dv, torch.zeros_like(u)],
-            [torch.zeros_like(u), torch.zeros_like(u), self.Iz + self.N_dr]
-        ], dim=0)
+        device = u.device
 
-        # Linear damping
+        # Inverse mass (diagonal, scalar constants)
+        M_inv_diag = torch.tensor([
+            1.0 / (self.m + self.X_du),
+            1.0 / (self.m + self.Y_dv),
+            1.0 / (self.Iz + self.N_dr)
+        ], dtype=torch.float32, device=device)
+
+        # Linear damping per sample
         D_lin = torch.stack([
             self.X_u * u,
             self.Y_v * v,
             self.N_r * r
-        ], dim=1)
+        ], dim=-1)  # [batch, 3]
 
-        # Nonlinear damping
-        D_nonlin = torch.stack([
+        # Nonlinear damping per sample
+        D_nl = torch.stack([
             self.X_uu * u * torch.abs(u),
             self.Y_vv * v * torch.abs(v),
             self.N_rr * r * torch.abs(r)
-        ], dim=1)
+        ], dim=-1)  # [batch, 3]
 
-        D = D_lin + D_nonlin
+        # Combine damping
+        D_total = D_lin + D_nl
 
-        # Simple planar Coriolis approximation (can improve with full matrix)
-        # For now we just ignore cross terms
-        C = torch.zeros_like(D)
+        # Net forces/moments
+        tau = torch.stack([X, Y, N], dim=-1)  # [batch, 3]
 
-        tau_vec = torch.stack([X, Y, N], dim=1)
-        
-        # accelerations
-        acc = torch.linalg.solve(M, tau_vec - D - C)
-        return acc
+        # Compute acceleration (elementwise per dimension)
+        accel = (tau - D_total) * M_inv_diag  # broadcasting [batch,3] * [3]
+
+        return accel  # [batch, 3]
