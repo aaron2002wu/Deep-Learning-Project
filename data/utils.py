@@ -1,4 +1,4 @@
-import math, json
+import math, json, re, ast
 import numpy as np
 import pandas as pd
 from scipy.signal import butter as _butter, filtfilt as _filtfilt
@@ -52,6 +52,10 @@ def map_long_to_wide_col(topic: str, field: str):
         return None
     if "/mavros/mission/waypoints" in topic:
         return "wp.current_seq" if field == "current_seq" else None
+    
+    if "cmd_thrust" in topic:
+        return field
+    
     return None
 
 def coerce_numeric(val):
@@ -68,16 +72,75 @@ def coerce_numeric(val):
             return None
     return None
 
+import re
+import pandas as pd
+
+def expand_cmd_thrust(df_long):
+    """
+    Expand /cmd_thrust rows with array('d', [port, center, starboard]) values
+    into separate long-format rows for port and starboard thrusters.
+    """
+    mask = df_long["topic"].str.contains("cmd_thrust", na=False) & df_long["field"].eq("data")
+    thrust_rows = df_long.loc[mask].copy()
+
+    if thrust_rows.empty:
+        print("[expand_cmd_thrust] No cmd_thrust rows found.")
+        return pd.DataFrame(columns=df_long.columns)
+
+    def parse_array(val):
+        """Extract list of floats from array('d', [..]) or [..] string."""
+        match = re.search(r"\[([^\]]+)\]", str(val))
+        if not match:
+            return [None, None, None]
+        try:
+            nums = [float(x.strip()) for x in match.group(1).split(",")]
+            # pad or trim to exactly 3 values
+            return (nums + [None] * 3)[:3]
+        except Exception:
+            return [None, None, None]
+
+    thrust_rows["values"] = thrust_rows["value"].apply(parse_array)
+
+    # Split into columns
+    thrust_expanded = pd.DataFrame(
+        thrust_rows["values"].tolist(),
+        columns=["cmd_thrust.port", "cmd_thrust.center", "cmd_thrust.starboard"]
+    )
+    thrust_expanded["timestamp"] = thrust_rows["timestamp"].values
+
+    # Drop center if always zero or None
+    if "cmd_thrust.center" in thrust_expanded:
+        if thrust_expanded["cmd_thrust.center"].fillna(0).abs().sum() == 0:
+            thrust_expanded = thrust_expanded.drop(columns=["cmd_thrust.center"])
+
+    # Melt into long-format compatible with main pipeline
+    thrust_long = thrust_expanded.melt(
+        id_vars=["timestamp"], var_name="field", value_name="value"
+    )
+    thrust_long["topic"] = "/bb04/experiment1/cmd_thrust"
+
+    thrust_long = thrust_long[["timestamp", "topic", "field", "value"]]
+    print(f"[expand_cmd_thrust] Expanded {len(thrust_long)} thrust samples.")
+    return thrust_long
+
 
 # Pipeline functions
 def long_to_wide(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
+
+    # --- Inject cmd_thrust expansion before mapping ---
+    thrust_long = expand_cmd_thrust(df)
+    df = pd.concat([df, thrust_long], ignore_index=True)
+
     mapped = df.assign(
         col=df.apply(lambda r: map_long_to_wide_col(r["topic"], r["field"]), axis=1),
         val=df["value"].map(coerce_numeric),
     )
     mapped = mapped.dropna(subset=["col", "val"])
-    wide = (mapped.pivot_table(index="timestamp", columns="col", values="val", aggfunc="last").sort_index())
+
+    wide = (mapped
+            .pivot_table(index="timestamp", columns="col", values="val", aggfunc="last")
+            .sort_index())
     wide.index = pd.to_datetime(wide.index, unit='s')
     return wide
 

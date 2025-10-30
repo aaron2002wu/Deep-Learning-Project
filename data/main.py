@@ -2,7 +2,7 @@ import argparse
 import pandas as pd
 from utils import (
     long_to_wide, resample_sync, derive_states, filter_signals,
-    finite_diff, trig_and_norm, finalize_export, save_outputs
+    finite_diff, trig_and_norm, finalize_export, save_outputs,expand_cmd_thrust
 )
 
 def parse_args():
@@ -18,8 +18,14 @@ def run_pipeline(args):
     df_long = pd.read_csv(args.input, sep='\t', engine='python', quoting=3)
     print(df_long.columns)
     print(df_long[df_long["topic"].isna()])
+    thrust_expanded = expand_cmd_thrust(df_long)
+    if not thrust_expanded.empty:
+        print(thrust_expanded.head(5))   
+        df_long = pd.concat([df_long, thrust_expanded], ignore_index=True)
 
     wide = long_to_wide(df_long)
+    print(wide.columns)
+
     wide, fs = resample_sync(wide, args.resample_hz)
 
     wide = derive_states(wide)
