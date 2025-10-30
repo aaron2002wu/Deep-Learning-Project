@@ -1,4 +1,9 @@
 # train.py
+import sys
+import os
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,12 +32,21 @@ batch_size = 64
 
 csv_path = "~/Downloads/processed_new.csv"
 df = pd.read_csv(csv_path,parse_dates=["time"])
+print(df.columns)
+
 
 inputs_cols = ["u_filt", "v_filt", "r_filt", "cmd_thrust.port", "cmd_thrust.starboard"]
 target_cols = ["du_dt", "dv_dt", "dr_dt"]  # measured accelerations; SHOULD WE USE IMU OR CALCULATED ACCELS?
 
+print(df[inputs_cols + target_cols].isna().sum())
+print(df[inputs_cols + target_cols].describe())
+
 inputs = torch.tensor(df[inputs_cols].values, dtype=torch.float32)
 measured_accel = torch.tensor(df[target_cols].values, dtype=torch.float32)
+
+
+print("Inputs shape:", inputs.shape)            # (N, 5)
+print("Measured accel shape:", measured_accel.shape)  # (N, 3)
 
 dataset = TensorDataset(inputs, measured_accel)
 loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
@@ -41,6 +55,36 @@ loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 model = ResidualMLP(in_dim=in_dim, hidden=hidden, out_dim=out_dim)
 criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=lr)
+
+
+# --------------------
+print("\n🔍 Running dry run (single batch check)...")
+
+x_batch, measured_accel_batch = next(iter(loader))
+print("x_batch:", x_batch.shape)
+print("measured_accel_batch:", measured_accel_batch.shape)
+
+# Unpack
+u, v, r, tL, tR = x_batch.T
+
+# Physics-based prediction
+model_accel = Fossen3DOF.forward(u, v, r, tL, tR)
+print("model_accel:", model_accel.shape)
+
+# Residual target
+residual_target = measured_accel_batch - model_accel
+print("residual_target:", residual_target.shape)
+
+# NN prediction
+residual_pred = model(x_batch)
+print("residual_pred:", residual_pred.shape)
+
+# Loss
+loss = criterion(residual_pred, residual_target)
+print("Initial loss:", loss.item())
+
+print("✅ Dry run passed — proceeding to training.\n")
+
 
 # Training Loop
 for epoch in range(epochs):
