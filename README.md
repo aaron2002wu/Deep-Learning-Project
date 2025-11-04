@@ -1,5 +1,10 @@
 # Deep-Learning-Project
+
 Fall 2025 CS 7643 DL project
+
+## Introduction
+
+Modeling Unmanned Surface Vehicle (USV) dynamics is difficult due to nonlinear hydrodynamics and unmodeled disturbances. We propose a hybrid residual learning framework that augments Fossen’s 3-DOF model with a neural network trained on Blue Robotics BlueBoat data in Gazebo. Sequence models (LSTMs, TCNs) capture temporal effects like wake buildup, while physics-informed regularization enforces energy and damping consistency. This approach enhances robustness and generalization while maintaining physical interpretability for reliable autonomous navigation.
 
 ## Data Preprocessing
 ### data/main.py
