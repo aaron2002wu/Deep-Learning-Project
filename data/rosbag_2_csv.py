@@ -120,13 +120,13 @@ def main():
 
     # Topics of interest
     target_topics = [
-        "/bb04/experiment1/cmd_thrust",
-        "/bb04/experiment1/mavros/global_position/global",
-        "/bb04/experiment1/mavros/imu/data",
-        "/bb04/experiment1/mavros/local_position/odom",
-        "/bb04/experiment1/mavros/mission/waypoints"
+    "/bb04/mavros/rc/out",
+    "/bb04/mavros/setpoint_velocity/cmd_vel_unstamped",
+    "/bb04/mavros/local_position/odom",
+    "/bb04/mavros/imu/data",
+    "/bb04/mavros/global_position/global",
+    "/bb04/mavros/state"    
     ]
-
     csv_file = args.output
     print(f"[INFO] Writing flattened data to: {csv_file}")
 
